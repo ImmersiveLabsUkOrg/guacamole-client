@@ -98,7 +98,8 @@ USER guacamole
 
 # Environment variable defaults
 ENV BAN_ENABLED=true \
-    ENABLE_FILE_ENVIRONMENT_PROPERTIES=true \
+    ENABLE_ENVIRONMENT_PROPERTIES=true \
+    ENABLE_FILE_ENVIRONMENT_PROPERTIES=false \
     GUACAMOLE_HOME=/etc/guacamole
 
 # Start Guacamole under Tomcat, listening on 0.0.0.0:8080
