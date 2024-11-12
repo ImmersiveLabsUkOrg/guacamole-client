@@ -59,9 +59,7 @@ is_property_set() {
 # Start with a fresh GUACAMOLE_HOME
 #
 
-rm -rf /tmp/guacamole-home.*
 GUACAMOLE_HOME="/tmp/guacamole-home"
-mkdir -p "$GUACAMOLE_HOME/"{lib,extensions}
 
 cat > "$GUACAMOLE_HOME/guacamole.properties" <<EOF
 # guacamole.properties - generated `date`
