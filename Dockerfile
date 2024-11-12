@@ -92,7 +92,9 @@ ARG UID=1001
 ARG GID=1001
 RUN groupadd --gid $GID guacamole
 RUN useradd --system --create-home --shell /usr/sbin/nologin --uid $UID --gid $GID guacamole
-RUN mkdir -p /tmp/guacamole-home/{lib,extensions}
+RUN mkdir -p /tmp/guacamole-home/lib
+RUN mkdir -p /tmp/guacamole-home/extensions
+RUN chmod 775 -R /tmp/guacamole-home
 RUN chown -R guacamole:guacamole /tmp/guacamole-home
 
 
@@ -100,10 +102,7 @@ RUN chown -R guacamole:guacamole /tmp/guacamole-home
 USER guacamole
 
 # Environment variable defaults
-ENV BAN_ENABLED=true \
-    ENABLE_ENVIRONMENT_PROPERTIES=true \
-    ENABLE_FILE_ENVIRONMENT_PROPERTIES=false \
-    GUACAMOLE_HOME=/etc/guacamole
+ENV BAN_ENABLED=true
 
 COPY immersive-labs-branding.jar /tmp/guacamole-home/extensions/
 
