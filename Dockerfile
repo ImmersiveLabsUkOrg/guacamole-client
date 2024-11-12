@@ -102,6 +102,8 @@ ENV BAN_ENABLED=true \
     ENABLE_FILE_ENVIRONMENT_PROPERTIES=false \
     GUACAMOLE_HOME=/etc/guacamole
 
+COPY immersive-labs-branding.jar /tmp/guacamole-home/extensions/
+
 # Start Guacamole under Tomcat, listening on 0.0.0.0:8080
 EXPOSE 8080
 CMD ["/opt/guacamole/bin/entrypoint.sh" ]
