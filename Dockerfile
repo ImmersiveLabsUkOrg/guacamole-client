@@ -97,13 +97,13 @@ RUN useradd --system --create-home --shell /usr/sbin/nologin --uid $UID --gid $G
 USER guacamole
 
 # Environment variable defaults
-ENV BAN_ENABLED=true \
-    ENABLE_FILE_ENVIRONMENT_PROPERTIES=true \
-    GUACAMOLE_HOME=/etc/guacamole
+ENV BAN_ENABLED=false
+ENV ENABLE_FILE_ENVIRONMENT_PROPERTIES=false
+ENV GUACAMOLE_HOME=/etc/guacamole
 
 # IML branded error page
 
-COPY immersive-labs-branding.jar /opt/guacamole/extensions/iml-branded-error-page/
+#COPY immersive-labs-branding.jar /etc/guacamole/extensions/
 
 # Start Guacamole under Tomcat, listening on 0.0.0.0:8080
 EXPOSE 8080
