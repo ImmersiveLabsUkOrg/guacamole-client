@@ -60,7 +60,7 @@ is_property_set() {
 #
 
 rm -rf /tmp/guacamole-home.*
-GUACAMOLE_HOME="`mktemp -p /tmp -d guacamole-home.XXXXXXXXXX`"
+GUACAMOLE_HOME="`mktemp -p /tmp -d guacamole-home`"
 mkdir -p "$GUACAMOLE_HOME/"{lib,extensions}
 
 cat > "$GUACAMOLE_HOME/guacamole.properties" <<EOF
