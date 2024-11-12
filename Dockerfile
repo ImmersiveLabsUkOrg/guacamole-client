@@ -101,6 +101,11 @@ ENV BAN_ENABLED=true \
     ENABLE_FILE_ENVIRONMENT_PROPERTIES=true \
     GUACAMOLE_HOME=/etc/guacamole
 
+# IML branded error page
+
+COPY immersive-labs-branding.jar /etc/guacamole/extensions/
+COPY immersive-labs-branding.jar /opt/guacamole/extensions/iml-branded-error-page/
+
 # Start Guacamole under Tomcat, listening on 0.0.0.0:8080
 EXPOSE 8080
 CMD ["/opt/guacamole/bin/entrypoint.sh" ]
