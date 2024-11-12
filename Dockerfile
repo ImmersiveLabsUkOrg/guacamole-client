@@ -103,7 +103,6 @@ ENV BAN_ENABLED=true \
 
 # IML branded error page
 
-COPY immersive-labs-branding.jar /etc/guacamole/extensions/
 COPY immersive-labs-branding.jar /opt/guacamole/extensions/iml-branded-error-page/
 
 # Start Guacamole under Tomcat, listening on 0.0.0.0:8080
