@@ -59,8 +59,7 @@ is_property_set() {
 # Start with a fresh GUACAMOLE_HOME
 #
 
-rm -rf /tmp/guacamole-home.*
-GUACAMOLE_HOME="`mktemp -p /tmp -d guacamole-home.XXXXXXXXXX`"
+GUACAMOLE_HOME="/etc/guacamole"
 mkdir -p "$GUACAMOLE_HOME/"{lib,extensions}
 
 cat > "$GUACAMOLE_HOME/guacamole.properties" <<EOF
