@@ -92,6 +92,8 @@ ARG UID=1001
 ARG GID=1001
 RUN groupadd --gid $GID guacamole
 RUN useradd --system --create-home --shell /usr/sbin/nologin --uid $UID --gid $GID guacamole
+RUN mkdir /etc/guacamole
+RUN chown -R guacamole:guacamole /etc/guacamole
 
 # Run with user guacamole
 USER guacamole
