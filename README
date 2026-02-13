@@ -1,5 +1,12 @@
 
 ------------------------------------------------------------
+ Immersive Labs Fork
+------------------------------------------------------------
+
+This is an Immersive Labs fork of Apache Guacamole. The main branch is kept
+in sync with upstream for tracking purposes. The default branch is 1.6.0-base.
+
+------------------------------------------------------------
  About this README
 ------------------------------------------------------------
 
