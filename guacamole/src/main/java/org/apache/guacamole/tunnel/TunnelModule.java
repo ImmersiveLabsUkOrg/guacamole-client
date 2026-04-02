@@ -41,8 +41,7 @@ public class TunnelModule extends ServletModule {
     private static final String[] WEBSOCKET_MODULES = {
         "org.apache.guacamole.tunnel.websocket.WebSocketTunnelModule",
         "org.apache.guacamole.tunnel.websocket.jetty8.WebSocketTunnelModule",
-        "org.apache.guacamole.tunnel.websocket.jetty9.WebSocketTunnelModule",
-        "org.apache.guacamole.tunnel.websocket.tomcat.WebSocketTunnelModule"
+        "org.apache.guacamole.tunnel.websocket.jetty9.WebSocketTunnelModule"
     };
 
     private boolean loadWebSocketModule(String classname) {
