@@ -297,14 +297,14 @@
         <dependency>
             <groupId>org.apache.tomcat</groupId>
             <artifactId>tomcat-catalina</artifactId>
-            <version>9.0.113</version>
+            <version>9.0.115</version>
             <scope>provided</scope>
         </dependency>
 
         <dependency>
             <groupId>org.apache.tomcat</groupId>
             <artifactId>tomcat-coyote</artifactId>
-            <version>9.0.113</version>
+            <version>9.0.115</version>
             <scope>provided</scope>
         </dependency>
 
