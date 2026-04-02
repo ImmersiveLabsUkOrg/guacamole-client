@@ -19,7 +19,7 @@
 
 const AngularTemplateCacheWebpackPlugin = require('angular-templatecache-webpack-plugin');
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
-const ClosureWebpackPlugin = require('closure-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 const DependencyListPlugin = require('./plugins/dependency-list-plugin');
@@ -95,11 +95,14 @@ module.exports = {
     optimization: {
         minimizer: [
 
-            // Minify using Google Closure Compiler
-            new ClosureWebpackPlugin({ mode: 'STANDARD' }, {
-                languageIn: 'ECMASCRIPT_2020',
-                languageOut: 'ECMASCRIPT5',
-                compilationLevel: 'SIMPLE'
+            // Minify JavaScript using Terser
+            new TerserPlugin({
+                terserOptions: {
+                    ecma: 5,
+                    compress: true,
+                    output: { comments: false }
+                },
+                extractComments: false
             }),
 
             new CssMinimizerPlugin()
