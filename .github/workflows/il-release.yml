@@ -7,6 +7,9 @@ on:
   push:
     branches:
       - 1.6.1-base
+    # CI changes do not change the image. Do not make a release for them.
+    paths-ignore:
+      - ".github/**"
   workflow_dispatch:
 
 concurrency:
@@ -103,7 +106,21 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --quiet "$UPSTREAM_URL" "$UPSTREAM_REF"
           upstream_base=$(git merge-base HEAD FETCH_HEAD)
-          range="${PREVIOUS:+$PREVIOUS..}HEAD"
+          # Compare upstream bases, so the list has only upstream changes that are new in this release.
+          # The first release has no tag. Use the last base branch commit before the newest upstream merge.
+          before="$PREVIOUS"
+          if [ -z "$before" ]; then
+            for c in $(git rev-list --first-parent HEAD); do
+              if ! git merge-base --is-ancestor "$upstream_base" "$c"; then
+                before=$c
+                break
+              fi
+            done
+          fi
+          range="$upstream_base"
+          if [ -n "$before" ]; then
+            range="$(git merge-base "$before" "$upstream_base")..$upstream_base"
+          fi
           {
             echo "## Image"
             echo ""
@@ -125,7 +142,7 @@ jobs:
             echo "Files that differ from upstream, without \`.github/\`:"
             echo ""
             echo '```'
-            git diff --stat=100 FETCH_HEAD HEAD -- . ':(exclude).github'
+            git diff --stat=100 "$upstream_base" HEAD -- . ':(exclude).github'
             echo '```'
             echo ""
             cat "$TRIVY_REPORT"
