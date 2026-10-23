@@ -1,0 +1,144 @@
+name: IL release
+
+# Build, test and scan the base branch. Push the release image and create a
+# GitHub Release. The version is <upstream revision>-il.<YYYYMMDD>.<n>.
+# Dot-separated numeric parts sort as numbers in SemVer.
+on:
+  push:
+    branches:
+      - 1.6.1-base
+  workflow_dispatch:
+
+concurrency:
+  group: il-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_ECR_ACCOUNT_ID: "491384846940"
+  AWS_DEFAULT_REGION: eu-west-1
+  ECR_REPOSITORY: apache-guacamole
+  UPSTREAM_URL: https://github.com/apache/guacamole-client.git
+  UPSTREAM_REF: patch
+
+jobs:
+  release:
+    if: vars.RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # push the tag, create the Release
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set version
+        id: version
+        run: |
+          set -euo pipefail
+          revision=$(sed -n 's|.*<revision>\(.*\)</revision>.*|\1|p' pom.xml | head -1)
+          [ -n "$revision" ] || { echo "::error::No <revision> in pom.xml"; exit 1; }
+          date=$(date -u +%Y%m%d)
+          n=1
+          while git rev-parse -q --verify "refs/tags/${revision}-il.${date}.${n}" >/dev/null; do
+            n=$((n + 1))
+          done
+          version="${revision}-il.${date}.${n}"
+          previous=$(git tag --list '*-il.*' --sort=-creatordate | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "Version: $version (previous: ${previous:-none})"
+
+      - name: Build and verify
+        id: build
+        uses: ./.github/actions/il-build
+        with:
+          image: guacamole-client:release
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ECR_ACCOUNT_ID }}:role/ecr-user
+          role-session-name: guacamole-client-release
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2.1.7
+
+      # Release tags are immutable. Stop if the tag exists in ECR already.
+      - name: Push release image
+        id: push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+              --image-ids imageTag="$VERSION" >/dev/null 2>&1; then
+            echo "::error::Image tag $VERSION exists in ECR already"
+            exit 1
+          fi
+          image="${AWS_ECR_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPOSITORY}:${VERSION}"
+          docker tag guacamole-client:release "$image"
+          docker push "$image"
+          digest=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$VERSION" --query 'imageDetails[0].imageDigest' --output text)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+          IMAGE: ${{ steps.push.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TOMCAT: ${{ steps.build.outputs.tomcat-version }}
+          JAVA: ${{ steps.build.outputs.java-version }}
+          TRIVY_REPORT: ${{ steps.build.outputs.trivy-report }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet "$UPSTREAM_URL" "$UPSTREAM_REF"
+          upstream_base=$(git merge-base HEAD FETCH_HEAD)
+          range="${PREVIOUS:+$PREVIOUS..}HEAD"
+          {
+            echo "## Image"
+            echo ""
+            echo "- \`$IMAGE\`"
+            echo "- Digest: \`$DIGEST\`"
+            echo "- Tomcat $TOMCAT, Java $JAVA"
+            echo ""
+            echo "## Upstream"
+            echo ""
+            echo "Base: apache/guacamole-client \`$UPSTREAM_REF\` at [\`${upstream_base:0:9}\`](https://github.com/apache/guacamole-client/commit/$upstream_base)."
+            echo ""
+            echo "Upstream changes in this release:"
+            echo ""
+            git log --merges --format='%s' "$range" \
+              | grep -o 'GUACAMOLE-[0-9]*:.*' | sort -u | sed 's/^/- /' || echo "- None"
+            echo ""
+            echo "## Immersive Labs patches"
+            echo ""
+            echo "Files that differ from upstream, without \`.github/\`:"
+            echo ""
+            echo '```'
+            git diff --stat=100 FETCH_HEAD HEAD -- . ':(exclude).github'
+            echo '```'
+            echo ""
+            cat "$TRIVY_REPORT"
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md"

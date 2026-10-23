@@ -1,0 +1,140 @@
+name: IL upstream sync
+
+# Merge the upstream branch into a new sync branch and open a pull request
+# into the base branch. Merge the pull request with a merge commit. A squash
+# merge removes the upstream history and causes conflicts on the next sync.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: Upstream branch or tag to merge
+        required: true
+        default: patch
+
+concurrency:
+  group: il-upstream-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  BASE_BRANCH: 1.6.1-base
+  UPSTREAM_URL: https://github.com/apache/guacamole-client.git
+  UPSTREAM_REF: ${{ inputs.upstream_ref || 'patch' }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # push the sync branch
+      pull-requests: write
+      actions: write # start IL CI on the sync branch
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.1.0
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Merge upstream
+        id: merge
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet "$UPSTREAM_URL" "$UPSTREAM_REF"
+          upstream_sha=$(git rev-parse FETCH_HEAD)
+          new=$(git rev-list --count "HEAD..$upstream_sha")
+          if [ "$new" -eq 0 ]; then
+            echo "No new upstream commits on $UPSTREAM_REF."
+            echo "result=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          branch="sync/upstream-$(echo "$UPSTREAM_REF" | tr '/' '-')-$(date -u +%Y%m%d)"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "Branch $branch exists already. Stop."
+            echo "result=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Collect the upstream issues before the merge changes HEAD.
+          {
+            echo "Merge apache/guacamole-client \`$UPSTREAM_REF\` at [\`${upstream_sha:0:9}\`](https://github.com/apache/guacamole-client/commit/$upstream_sha) into \`$BASE_BRANCH\`."
+            echo ""
+            echo "$new new upstream commits."
+            echo ""
+            echo "## Upstream changes"
+            echo ""
+            git log --merges --format='%s' "HEAD..$upstream_sha" \
+              | grep -o 'GUACAMOLE-[0-9]*:.*' | sort -u | sed 's/^/- /' || echo "- None"
+            echo ""
+          } > "$RUNNER_TEMP/body.md"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          if git merge --no-ff --no-edit -m "Merge upstream $UPSTREAM_REF into $BASE_BRANCH" "$upstream_sha"; then
+            result=clean
+            {
+              echo "## Next steps"
+              echo ""
+              echo "1. Wait for IL CI. It pushes a dev image for manual testing."
+              echo "2. Test the dev image by hand."
+              echo "3. Merge with a **merge commit**. Do not squash."
+            } >> "$RUNNER_TEMP/body.md"
+          else
+            result=conflicts
+            files=$(git diff --name-only --diff-filter=U)
+            git merge --abort
+            # Push the upstream commit. A person merges the base branch into
+            # it and fixes the conflicts.
+            git reset --hard "$upstream_sha"
+            {
+              echo "## Conflicts"
+              echo ""
+              echo "The merge has conflicts in these files:"
+              echo ""
+              while read -r f; do echo "- \`$f\`"; done <<< "$files"
+              echo ""
+              echo "To fix:"
+              echo ""
+              echo '```'
+              echo "git fetch origin && git switch $branch"
+              echo "git merge origin/$BASE_BRANCH"
+              echo "# fix the conflicts, then commit and push"
+              echo '```'
+            } >> "$RUNNER_TEMP/body.md"
+          fi
+
+          # GITHUB_TOKEN cannot push changes to workflow files.
+          if ! git push origin "$branch"; then
+            echo "::error::Push failed. If upstream changed .github/workflows, do this sync by hand."
+            exit 1
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request
+        if: steps.merge.outputs.result == 'clean' || steps.merge.outputs.result == 'conflicts'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.merge.outputs.branch }}
+          RESULT: ${{ steps.merge.outputs.result }}
+        run: |
+          set -euo pipefail
+          title="Merge upstream $UPSTREAM_REF ($(date -u +%Y-%m-%d))"
+          [ "$RESULT" = "conflicts" ] && title="$title - conflicts"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE_BRANCH" --head "$BRANCH" \
+            --title "$title" --body-file "$RUNNER_TEMP/body.md"
+
+      # Pull requests from GITHUB_TOKEN do not start pull_request workflows.
+      # A workflow_dispatch event does. The checks attach to the head commit.
+      # On conflicts, the push with the fix starts IL CI.
+      - name: Start IL CI
+        if: steps.merge.outputs.result == 'clean'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.merge.outputs.branch }}
+        run: gh workflow run il-ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
