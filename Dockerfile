@@ -28,7 +28,9 @@ ARG TOMCAT_VERSION=9
 ARG TOMCAT_JRE=jdk21
 
 # Use official maven image for the build
-FROM maven:3-eclipse-temurin-21 AS builder
+# Run the builder on the build host platform. The output is Java only.
+# Emulated builds fail, because QEMU does not support all tar syscalls.
+FROM --platform=$BUILDPLATFORM maven:3-eclipse-temurin-21 AS builder
 
 # Use Mozilla's Firefox PPA (newer Ubuntu lacks a "firefox-esr" package and
 # provides only a transitional "firefox" package that actually requires Snap
