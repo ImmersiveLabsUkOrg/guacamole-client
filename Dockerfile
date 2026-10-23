@@ -42,8 +42,12 @@ RUN    apt-get update                                \
 COPY guacamole-docker/mozilla-firefox.pref /etc/apt/preferences.d/
 
 # Install firefox browser for sake of JavaScript unit tests
-# Install gettext-base for envsubst (used by license generation scripts)
-RUN apt-get update && apt-get install -y firefox gettext-base
+RUN apt-get update && apt-get install -y firefox
+
+# Install gettext-base for "envsubst", required by the license-generation
+# script (doc/licenses/generate-license-files.sh) but not present by default
+# in the base Maven image
+RUN apt-get update && apt-get install -y gettext-base
 
 # Arbitrary arguments that can be passed to the maven build. By default, an
 # argument will be provided to explicitly unskip any skipped tests. To, for
@@ -52,9 +56,9 @@ RUN apt-get update && apt-get install -y firefox gettext-base
 ARG MAVEN_ARGUMENTS="-DskipTests=false"
 
 # Versions of JDBC drivers to bundle within image
-ARG MSSQL_JDBC_VERSION=9.4.1
+ARG MSSQL_JDBC_VERSION=13.4.0
 ARG MYSQL_JDBC_VERSION=9.3.0
-ARG PGSQL_JDBC_VERSION=42.7.7
+ARG PGSQL_JDBC_VERSION=42.7.14
 
 # Build environment variables
 ENV \
@@ -77,8 +81,10 @@ RUN rm -rf /opt/guacamole/build.d /opt/guacamole/bin/build-guacamole.sh
 # For the runtime image, we start with the official Tomcat distribution
 FROM tomcat:${TOMCAT_VERSION}-${TOMCAT_JRE}
 
-# Install XMLStarlet for server.xml alterations
+# Apply any pending security updates to the base image's OS packages, and
+# install XMLStarlet for server.xml alterations
 RUN apt-get update -qq \
+    && apt-get upgrade -y \
     && apt-get install -y xmlstarlet \
     && rm -rf /var/lib/apt/lists/* 
 
