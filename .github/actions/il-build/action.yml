@@ -25,8 +25,10 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
 
-    # The Dockerfile runs the Maven build. The default MAVEN_ARGUMENTS runs
-    # all Java and JavaScript unit tests, so a test failure fails this step.
+    # The Dockerfile runs the Maven build with all unit tests, so a test
+    # failure fails this step. Build only the extensions that we use. The
+    # image does not contain the other extensions, so an env var with their
+    # prefix cannot enable them. To add an extension, add it to the -pl list.
     - name: Build image and run unit tests
       uses: docker/build-push-action@v7.4.0
       with:
@@ -34,6 +36,8 @@ runs:
         platforms: linux/amd64
         load: true
         tags: ${{ inputs.image }}
+        build-args: |
+          MAVEN_ARGUMENTS=-pl guacamole,extensions/guacamole-auth-ban,extensions/guacamole-auth-json -am -DskipTests=false
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -42,9 +46,12 @@ runs:
       shell: bash
       env:
         IMAGE: ${{ inputs.image }}
+        EXPECTED_EXTENSIONS: "ban json"
       run: |
         set -euo pipefail
-        docker run -d --name il-smoke -p 8080:8080 "$IMAGE"
+        # The json extension loads only when a JSON_ variable exists. Use a random test key.
+        docker run -d --name il-smoke -p 8080:8080 \
+          -e JSON_SECRET_KEY="$(openssl rand -hex 16)" "$IMAGE"
         code=000
         for _ in $(seq 1 60); do
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/guacamole/ || true)
@@ -57,6 +64,11 @@ runs:
           exit 1
         fi
         curl -sf http://localhost:8080/guacamole/api/languages | jq -e '.en' >/dev/null
+        loaded=$(docker logs il-smoke 2>&1 | sed -n 's/.*Extension ".*" (\(.*\)) loaded.*/\1/p' | sort | xargs)
+        if [ "$loaded" != "$EXPECTED_EXTENSIONS" ]; then
+          echo "::error::Loaded extensions are '$loaded', expected '$EXPECTED_EXTENSIONS'"
+          exit 1
+        fi
         tomcat=$(docker exec il-smoke /usr/local/tomcat/bin/version.sh 2>/dev/null | sed -n 's/^Server number: *//p')
         java=$(docker exec il-smoke sh -c 'echo "$JAVA_VERSION"')
         docker rm -f il-smoke >/dev/null
@@ -68,6 +80,7 @@ runs:
           echo "- \`GET /guacamole/\`: $code"
           echo "- Tomcat: $tomcat"
           echo "- Java: $java"
+          echo "- Extensions loaded: $loaded"
           echo ""
         } >> "$GITHUB_STEP_SUMMARY"
 
