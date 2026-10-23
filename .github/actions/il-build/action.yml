@@ -1,0 +1,113 @@
+name: IL build and verify
+description: >
+  Build the linux/amd64 image with all unit tests, run a smoke test and scan
+  the image with Trivy. The image stays in the local Docker daemon.
+
+inputs:
+  image:
+    description: Local image name and tag
+    required: true
+
+outputs:
+  tomcat-version:
+    description: Tomcat version in the image
+    value: ${{ steps.smoke.outputs.tomcat-version }}
+  java-version:
+    description: Java version in the image
+    value: ${{ steps.smoke.outputs.java-version }}
+  trivy-report:
+    description: Path of the Markdown Trivy report
+    value: ${{ steps.trivy.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    # The Dockerfile runs the Maven build. The default MAVEN_ARGUMENTS runs
+    # all Java and JavaScript unit tests, so a test failure fails this step.
+    - name: Build image and run unit tests
+      uses: docker/build-push-action@v7.4.0
+      with:
+        context: .
+        platforms: linux/amd64
+        load: true
+        tags: ${{ inputs.image }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Smoke test
+      id: smoke
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+      run: |
+        set -euo pipefail
+        docker run -d --name il-smoke -p 8080:8080 "$IMAGE"
+        code=000
+        for _ in $(seq 1 60); do
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/guacamole/ || true)
+          [ "$code" = "200" ] && break
+          sleep 2
+        done
+        docker logs il-smoke 2>&1 | tail -40
+        if [ "$code" != "200" ]; then
+          echo "::error::GET /guacamole/ returned $code, expected 200"
+          exit 1
+        fi
+        curl -sf http://localhost:8080/guacamole/api/languages | jq -e '.en' >/dev/null
+        tomcat=$(docker exec il-smoke /usr/local/tomcat/bin/version.sh 2>/dev/null | sed -n 's/^Server number: *//p')
+        java=$(docker exec il-smoke sh -c 'echo "$JAVA_VERSION"')
+        docker rm -f il-smoke >/dev/null
+        echo "tomcat-version=$tomcat" >> "$GITHUB_OUTPUT"
+        echo "java-version=$java" >> "$GITHUB_OUTPUT"
+        {
+          echo "### Smoke test"
+          echo ""
+          echo "- \`GET /guacamole/\`: $code"
+          echo "- Tomcat: $tomcat"
+          echo "- Java: $java"
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # Run the Trivy image, pinned by digest. Do not use trivy-action: its
+    # release tags were compromised in 2026. The scan reports only. It does
+    # not fail the build yet.
+    - name: Trivy scan
+      id: trivy
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+      run: |
+        set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/trivy-cache"
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v "$RUNNER_TEMP/trivy-cache:/root/.cache" \
+          "$TRIVY_IMAGE" image --quiet --scanners vuln --ignore-unfixed \
+          --severity CRITICAL,HIGH,MEDIUM,LOW --format json "$IMAGE" > "$RUNNER_TEMP/trivy.json"
+        report="$RUNNER_TEMP/trivy.md"
+        {
+          echo "### Trivy (fixed vulnerabilities only)"
+          echo ""
+          echo "| Critical | High | Medium | Low |"
+          echo "|---|---|---|---|"
+          jq -r '[.Results[]?.Vulnerabilities[]?.Severity] as $s
+            | [("CRITICAL","HIGH","MEDIUM","LOW") as $l | ($s | map(select(. == $l)) | length)]
+            | "| " + (map(tostring) | join(" | ")) + " |"' "$RUNNER_TEMP/trivy.json"
+          echo ""
+          echo "<details><summary>Critical and high</summary>"
+          echo ""
+          echo "| Severity | Package | Installed | Fixed | ID |"
+          echo "|---|---|---|---|---|"
+          jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH")]
+            | unique_by(.VulnerabilityID + .PkgName)[]
+            | "| \(.Severity) | \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion) | \(.VulnerabilityID) |"' "$RUNNER_TEMP/trivy.json"
+          echo ""
+          echo "</details>"
+          echo ""
+        } > "$report"
+        cat "$report" >> "$GITHUB_STEP_SUMMARY"
+        echo "report=$report" >> "$GITHUB_OUTPUT"
